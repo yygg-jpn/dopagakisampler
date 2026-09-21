@@ -293,7 +293,7 @@ function pitchedBuffer(buffer,semitones){
  }
  variants.set(steps,result);return result;
 }
-function play(i,when){let p=pads[i];if(!p.buffer)return;audio();if(patternRecording&&i<9&&when===undefined){let beat=(ctx.currentTime-patternStart)*pattern.recordBpm/60;if(beat>=0&&beat<pattern.beats)pattern.events.push({pad:i,beat,pitch:p.pitch})}let src=ctx.createBufferSource();src.buffer=pitchedBuffer(p.buffer,p.pitch);connectPadFx(src,p);src.start(when??ctx.currentTime);p.voices.push(src);src.onended=()=>{p.voices=p.voices.filter(v=>v!==src)};return src}function connectPadFx(src,p){let fx=p.fx||{dist:0,delay:0,filter:0};let node=src;const filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=fx.filter<=0?22000:Math.max(300,22000*Math.pow(300/22000,fx.filter/100));node.connect(filter);node=filter;if(fx.dist>0){let shaper=ctx.createWaveShaper(),amount=fx.dist/100*180,curve=new Float32Array(2048);for(let k=0;k<curve.length;k++){let x=k*2/(curve.length-1)-1;curve[k]=(1+amount)*x/(1+amount*Math.abs(x))}shaper.curve=curve;shaper.oversample='2x';node.connect(shaper);node=shaper}node.connect(master);if(fx.delay>0){let delay=ctx.createDelay(1),feedback=ctx.createGain(),wet=ctx.createGain();delay.delayTime.value=.25;feedback.gain.value=Math.min(.55,fx.delay/100*.55);wet.gain.value=fx.delay/100*.5;node.connect(delay);delay.connect(feedback);feedback.connect(delay);delay.connect(wet);wet.connect(master);src.addEventListener('ended',()=>{setTimeout(()=>{try{feedback.disconnect();delay.disconnect();wet.disconnect()}catch{}},1800)},{once:true})}}
+function play(i,when){let p=pads[i];if(!p.buffer)return;audio();if(patternRecording&&i<9&&when===undefined){let beat=(ctx.currentTime-patternStart)*pattern.recordBpm/60;if(beat>=0&&beat<128)pattern.events.push({pad:i,beat,pitch:p.pitch,duration:pitchedBuffer(p.buffer,p.pitch).duration})}let src=ctx.createBufferSource();src.buffer=pitchedBuffer(p.buffer,p.pitch);connectPadFx(src,p);src.start(when??ctx.currentTime);p.voices.push(src);src.onended=()=>{p.voices=p.voices.filter(v=>v!==src)};return src}function connectPadFx(src,p){let fx=p.fx||{dist:0,delay:0,filter:0};let node=src;const filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=fx.filter<=0?22000:Math.max(300,22000*Math.pow(300/22000,fx.filter/100));node.connect(filter);node=filter;if(fx.dist>0){let shaper=ctx.createWaveShaper(),amount=fx.dist/100*180,curve=new Float32Array(2048);for(let k=0;k<curve.length;k++){let x=k*2/(curve.length-1)-1;curve[k]=(1+amount)*x/(1+amount*Math.abs(x))}shaper.curve=curve;shaper.oversample='2x';node.connect(shaper);node=shaper}node.connect(master);if(fx.delay>0){let delay=ctx.createDelay(1),feedback=ctx.createGain(),wet=ctx.createGain();delay.delayTime.value=.25;feedback.gain.value=Math.min(.55,fx.delay/100*.55);wet.gain.value=fx.delay/100*.5;node.connect(delay);delay.connect(feedback);feedback.connect(delay);delay.connect(wet);wet.connect(master);src.addEventListener('ended',()=>{setTimeout(()=>{try{feedback.disconnect();delay.disconnect();wet.disconnect()}catch{}},1800)},{once:true})}}
 function stopVoices(p){p.voices.forEach(v=>{try{v.stop()}catch{}});p.voices=[]}function loopTick(i){let p=pads[i];if(!p.loop)return;let beat=60/bpm,now=ctx.currentTime,next=loopOrigin+Math.ceil((now-loopOrigin+.012)/beat)*beat;if(next<now+.012)next+=beat;let src=play(i,next);let duration=Math.max(.05,p.buffer.duration);let nextAt=next+Math.ceil(duration/beat)*beat;p.timer=setTimeout(()=>loopTick(i),Math.max(40,(nextAt-ctx.currentTime)*1000-20))}function toggleLoop(i){let p=pads[i];if(!p.buffer)return;audio();p.loop=!p.loop;if(p.loop)loopTick(i);else{clearTimeout(p.timer);stopVoices(p)}const oldPad=$('pads')?.children[i];if(oldPad){oldPad.classList.toggle('loop',p.loop);oldPad.classList.toggle('active',false)}if(i===9)renderBass();msg(p.loop?`↻ ${p.name}：ぐるぐる中！ タップでとめる`:`${p.name}：ループをとめたよ`)}function stopAll(){if(patternRecording)finishPatternRecord();patternStopPlayback();pads.forEach(p=>{p.loop=false;clearTimeout(p.timer);stopVoices(p)});render();renderBass();msg('ぜんぶとめたよ')}
 function edit(i){let p=pads[i];if(!p.fx)p.fx={dist:0,delay:0,filter:0};open(`<div class="row"><h2>${i===9?'BASS LOOP':'PAD '+(i+1)}</h2><button class="btn secondary" id="x">閉じる</button></div><label>① 音の名前</label><input id="padName" type="text" maxlength="30" value="${esc(p.name)}"><label>② ろくおん</label><div id="recordStatus" class="status"></div><div id="recordDisplay" class="record-display"><div class="record-title"><span class="record-dot"></span><span id="recordTarget"></span> 録音中！</div><div id="recordClock" class="record-clock">00:00</div><div class="record-meter" id="recordMeter">${Array.from({length:17},()=>'<i></i>').join('')}</div><button class="btn danger" id="bigStop">■ ろくおんをとめる</button></div><div id="recordControls" class="edit-record-row"></div><label>③ ピッチへんこう：<output id="pitchVal">${p.pitch>0?'+':''}${p.pitch}</output> 半音</label><input id="pitch" class="eye-range" type="range" min="-12" max="12" step="1" value="${p.pitch}"><p class="muted">−12 ～ ＋12 半音。音の長さはそのままで、高さだけ変わるよ。</p><label>④ エフェクター ― 音をもっとヤヴァくする！</label><div class="fx-controls"><label>バリバリ（ディストーション） <output id="distVal">${p.fx.dist}</output><input id="fxDist" type="range" min="0" max="100" value="${p.fx.dist}"></label><label>やまびこ（ディレイ） <output id="delayVal">${p.fx.delay}</output><input id="fxDelay" type="range" min="0" max="100" value="${p.fx.delay}"></label><label>こもり（フィルター） <output id="filterVal">${p.fx.filter}</output><input id="fxFilter" type="range" min="0" max="100" value="${p.fx.filter}"></label></div><div id="padExtras"></div><p class="muted">録音時はマイクの使用を許可してください。録音した音はこの端末内に保存されます。</p>`);$('x').onclick=()=>{if(micRecorder){toast('先に録音を停止してね');return}close()};$('bigStop').onclick=stopMic;$('padName').oninput=e=>{p.name=e.target.value};$('padName').onchange=()=>{save();render()};$('pitch').oninput=e=>{p.pitch=Number(e.target.value);$('pitchVal').textContent=(p.pitch>0?'+':'')+p.pitch;updateEyeFill(e.target);save()};updateEyeFill($('pitch'));for(const [key,id,out] of [['dist','fxDist','distVal'],['delay','fxDelay','delayVal'],['filter','fxFilter','filterVal']]){$(id).oninput=e=>{p.fx[key]=Number(e.target.value);$(out).textContent=e.target.value;save()}}let actions=$('recordControls');let startButton=btn('● ろくおんする',()=>startMic(i));startButton.id='recordStartBtn';actions.append(startButton);let stopButton=btn('■ ろくおんをとめる',stopMic,'secondary');stopButton.id='recordStopBtn';stopButton.disabled=true;actions.append(stopButton);let extras=$('padExtras');
 let preview=btn('▶ ためしにきく',()=>{if(!p.blob||!p.buffer){toast('先に音をろくおんしてね');return}play(i)},'secondary');
@@ -392,10 +392,10 @@ function startPatternRecord(){
  const generation=++patternGeneration;
  pattern={events:[],beats:16,recordBpm:bpm};const beat=60/bpm;
  patternStart=loopOrigin+Math.ceil((ctx.currentTime-loopOrigin+.08)/beat)*beat;
- $('bassRec').textContent='■ ループをおぼえた！';$('bassRec').className='recording';
- $('bassStatus').textContent='🔴 録音待機 → 4小節演奏してね';
- patternTimer=setTimeout(()=>{if(patternRecording&&generation===patternGeneration){$('bassStatus').textContent='🔴 パターン録音中！ パッドをたたこう';toast('🔴 パターン録音中！',false,true)}},Math.max(0,(patternStart-ctx.currentTime)*1000));
- setTimeout(()=>{if(patternRecording&&generation===patternGeneration)finishPatternRecord()},Math.max(0,(patternStart-ctx.currentTime+pattern.beats*beat)*1000));
+ $('bassRec').textContent='■ できたらここをおす！';$('bassRec').className='recording';
+ $('bassStatus').textContent='🔴 演奏して、できたら左のボタンをおしてね';
+ patternTimer=setTimeout(()=>{if(patternRecording&&generation===patternGeneration){$('bassStatus').textContent='🔴 できたら「できたらここをおす！」をおしてね';toast('🔴 ループ作成中！',false,true)}},Math.max(0,(patternStart-ctx.currentTime)*1000));
+ // Completion is manual: the child can take time to press the button.
 }
 function finishPatternRecord(){
  if(!patternRecording)return;
@@ -405,9 +405,11 @@ function finishPatternRecord(){
   const first=Math.min(...pattern.events.map(e=>e.beat));
   const offset=first>=.25?first:0;
   pattern.events=pattern.events.map(e=>({...e,beat:Math.max(0,e.beat-offset)}));
-  const last=Math.max(...pattern.events.map(e=>e.beat));
-  pattern.beats=Math.max(1,Math.min(16,Math.ceil(last+1-1e-7)));
-  save();msg('✓ おぼえた！ 無音の長い部分をカットしたよ');
+  // Derive the end from the final audible sample, not the time the child presses Done.
+  // Preserve gaps between notes. Round the end up to the next beat for a stable BPM loop.
+  const lastEnd=Math.max(...pattern.events.map(e=>e.beat-offset+Math.max(.01,Number(e.duration)||60/pattern.recordBpm)*pattern.recordBpm/60));
+  pattern.beats=Math.max(1,Math.min(128,Math.ceil(lastEnd-1e-7)));
+  save();msg('✓ ループ完成！ 最後の音のあとの無音をカットしたよ');
  }else msg('音が入っていないよ。もう一度録音してね');
  renderBass();
 }
@@ -424,7 +426,7 @@ function togglePattern(){
 function renderBass(){
  $('bassPlay').textContent=bass.loop?'■ くりかえしをとめる':'↻ 演奏をくりかえす';
  $('bassPlay').className=bass.loop?'running':(pattern.events.length?'':'off');
- $('bassRec').textContent=patternRecording?'■ ループをおぼえた！':'● ループをつくる';
+ $('bassRec').textContent=patternRecording?'■ できたらここをおす！':'● ループをつくる';
  $('bassRec').className=patternRecording?'recording':'';
  if(!patternRecording)$('bassStatus').textContent=bass.loop?'↻ 演奏ループ中。右のボタンでとめられるよ':pattern.events.length?`録音済み：${pattern.events.length}音 / ${pattern.beats}拍`:'演奏を記録してループをつくろう';
 }
